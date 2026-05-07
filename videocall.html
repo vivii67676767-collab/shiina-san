@@ -1,0 +1,713 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Mahiru AI - Video Call</title>
+<link rel="stylesheet" href="style.css">
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+<style>
+/* ══ VIDEO CALL SCREEN ══ */
+body { background: #030510; }
+
+#vc-screen {
+  position: fixed; inset: 0;
+  display: flex; flex-direction: column;
+}
+
+/* Camera BG */
+#camera-bg {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1);
+  filter: brightness(0.5) saturate(0.7);
+}
+.vc-overlay {
+  position: absolute; inset: 0;
+  background: linear-gradient(to bottom,
+    rgba(3,5,16,0.3) 0%,
+    rgba(3,5,16,0.05) 40%,
+    rgba(3,5,16,0.45) 70%,
+    rgba(3,5,16,0.9) 100%);
+}
+.scanlines {
+  position: absolute; inset: 0;
+  background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,245,255,0.01) 2px, rgba(0,245,255,0.01) 4px);
+  pointer-events: none; z-index: 2;
+}
+
+/* CORNER DECOS */
+.cdeco { position: absolute; width: 22px; height: 22px; z-index: 10; opacity: 0.35; }
+.cdeco.tl { top:10px;left:10px; border-top:1.5px solid var(--cyan); border-left:1.5px solid var(--cyan); }
+.cdeco.tr { top:10px;right:10px; border-top:1.5px solid var(--cyan); border-right:1.5px solid var(--cyan); }
+.cdeco.bl { bottom:10px;left:10px; border-bottom:1.5px solid var(--cyan); border-left:1.5px solid var(--cyan); }
+.cdeco.br { bottom:10px;right:10px; border-bottom:1.5px solid var(--cyan); border-right:1.5px solid var(--cyan); }
+
+/* TOP BAR */
+.vc-topbar {
+  position: relative; z-index: 10;
+  padding: 48px 18px 12px;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.vc-name { font-size: 1.3rem; font-weight: 700; color: white; letter-spacing: 2px; text-shadow: 0 0 18px rgba(0,245,255,0.5); }
+.vc-status { display: flex; align-items: center; gap: 5px; font-size: 0.65rem; color: var(--cyan); letter-spacing: 1px; margin-top: 3px; }
+.vc-timer { font-size: 0.82rem; color: rgba(255,255,255,0.65); font-variant-numeric: tabular-nums; letter-spacing: 1px; }
+
+/* SELF VIEW */
+.self-view {
+  position: absolute; top: 106px; right: 14px;
+  width: 86px; height: 124px; border-radius: 14px;
+  border: 1.5px solid rgba(0,245,255,0.28);
+  overflow: hidden; z-index: 10;
+  box-shadow: 0 4px 18px rgba(0,0,0,0.5);
+}
+#self-video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+
+/* 3D MODEL CANVAS */
+#model-canvas {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  z-index: 5;
+  pointer-events: none;
+}
+
+/* EMOTION TAG */
+.emotion-tag {
+  position: absolute;
+  top: 110px; left: 18px;
+  z-index: 10;
+  background: rgba(3,5,16,0.7);
+  border: 1px solid rgba(0,245,255,0.2);
+  border-radius: 20px; padding: 5px 12px;
+  font-size: 0.65rem; color: var(--cyan);
+  letter-spacing: 1px; backdrop-filter: blur(8px);
+  opacity: 0; transition: opacity 0.4s;
+}
+.emotion-tag.show { opacity: 1; }
+
+/* HOLO BASE (under model) */
+.holo-base-vc {
+  position: absolute;
+  bottom: 148px; left: 50%;
+  transform: translateX(-50%);
+  z-index: 4; width: 180px; height: 24px;
+}
+.holo-ring-vc {
+  position: absolute; border-radius: 50%;
+  border: 1px solid var(--cyan);
+  top: 50%; left: 50%;
+  transform: translate(-50%,-50%);
+  animation: ring-p 2s ease-in-out infinite;
+}
+.holo-ring-vc:nth-child(1){width:90px;height:18px;opacity:0.75;box-shadow:0 0 8px var(--cyan)}
+.holo-ring-vc:nth-child(2){width:140px;height:24px;opacity:0.3;animation-delay:0.5s}
+.holo-ring-vc:nth-child(3){width:180px;height:30px;opacity:0.12;animation-delay:1s}
+@keyframes ring-p{0%,100%{opacity:0.55}50%{opacity:0.18}}
+
+/* SUBTITLE */
+.vc-subtitle {
+  position: absolute;
+  bottom: 152px; left: 16px; right: 16px;
+  z-index: 10; display: flex; justify-content: center;
+}
+.vc-sub-text {
+  background: rgba(3,5,16,0.82);
+  border: 1px solid rgba(0,245,255,0.16);
+  border-radius: 14px; padding: 11px 16px;
+  font-size: 0.84rem; line-height: 1.6;
+  color: #e8f4ff; text-align: center;
+  max-width: 400px; backdrop-filter: blur(12px);
+  opacity: 0; transform: translateY(8px);
+  transition: all 0.4s ease;
+}
+.vc-sub-text.visible { opacity: 1; transform: translateY(0); }
+
+/* LISTENING */
+.vc-listen {
+  position: absolute; bottom: 218px; left: 50%;
+  transform: translateX(-50%);
+  z-index: 10; display: flex; align-items: center; gap: 8px;
+  opacity: 0; transition: opacity 0.3s;
+}
+.vc-listen.active { opacity: 1; }
+.vc-listen-waves { display: flex; align-items: center; gap: 3px; }
+.vc-wave { width: 3px; background: var(--cyan); border-radius: 2px; animation: wave 0.8s ease-in-out infinite; }
+.vc-wave:nth-child(1){height:6px;animation-delay:0s}
+.vc-wave:nth-child(2){height:14px;animation-delay:0.1s}
+.vc-wave:nth-child(3){height:10px;animation-delay:0.2s}
+.vc-wave:nth-child(4){height:18px;animation-delay:0.3s}
+.vc-wave:nth-child(5){height:10px;animation-delay:0.4s}
+.vc-wave:nth-child(6){height:6px;animation-delay:0.5s}
+@keyframes wave{0%,100%{transform:scaleY(0.5);opacity:0.5}50%{transform:scaleY(1.5);opacity:1}}
+.vc-listen-text { font-size: 0.65rem; color: var(--cyan); letter-spacing: 2px; text-transform: uppercase; }
+
+/* CONTROLS */
+.vc-controls {
+  position: absolute; bottom: 0; left: 0; right: 0;
+  padding: 16px 28px 44px;
+  display: flex; align-items: center; justify-content: space-around;
+  z-index: 10;
+  background: linear-gradient(to top, rgba(3,5,16,0.92), transparent);
+}
+.vc-btn {
+  width: 52px; height: 52px; border-radius: 50%;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(255,255,255,0.07);
+  color: white; font-size: 1.2rem;
+  cursor: pointer; transition: all 0.3s;
+  display: flex; align-items: center; justify-content: center;
+  backdrop-filter: blur(10px);
+}
+.vc-btn:hover { background: rgba(255,255,255,0.14); transform: scale(1.05); }
+.vc-btn.active { background: rgba(0,245,255,0.15); border-color: var(--cyan); box-shadow: 0 0 14px rgba(0,245,255,0.25); }
+.vc-btn.end {
+  width: 64px; height: 64px;
+  background: linear-gradient(135deg, #ff4466, #cc1133);
+  border-color: #ff4466; font-size: 1.4rem;
+  box-shadow: 0 4px 18px rgba(255,68,102,0.4);
+}
+.vc-btn.end:hover { transform: scale(1.08); }
+
+/* SCAN BEAM on model area */
+.scan-beam-vc {
+  position: absolute;
+  left: 50%; transform: translateX(-50%);
+  width: 200px; height: 2px;
+  background: linear-gradient(90deg, transparent, var(--cyan), transparent);
+  z-index: 6; border-radius: 2px; opacity: 0.5;
+  animation: scan-vc 2.5s linear infinite;
+}
+@keyframes scan-vc {
+  0%{top:15%;opacity:0}5%{opacity:0.5}95%{opacity:0.5}100%{top:80%;opacity:0}
+}
+
+/* PARTICLES */
+.vc-particles { position: absolute; inset: 0; pointer-events: none; z-index: 4; }
+.vc-particle {
+  position: absolute; width: 2px; height: 2px;
+  border-radius: 50%; animation: p-rise linear infinite;
+}
+@keyframes p-rise {
+  0%{opacity:0;transform:translateY(0) scale(0)}
+  20%{opacity:1}100%{opacity:0;transform:translateY(-100px) scale(1.5)}
+}
+</style>
+</head>
+<body>
+
+<div id="vc-screen">
+  <video id="camera-bg" autoplay playsinline muted></video>
+  <div class="vc-overlay"></div>
+  <div class="scanlines"></div>
+  <div class="cdeco tl"></div><div class="cdeco tr"></div>
+  <div class="cdeco bl"></div><div class="cdeco br"></div>
+
+  <div class="self-view"><video id="self-video" autoplay playsinline muted></video></div>
+
+  <!-- 3D Canvas -->
+  <canvas id="model-canvas"></canvas>
+
+  <!-- Particles & effects -->
+  <div class="vc-particles" id="vc-particles"></div>
+  <div class="scan-beam-vc"></div>
+  <div class="holo-base-vc">
+    <div class="holo-ring-vc"></div>
+    <div class="holo-ring-vc"></div>
+    <div class="holo-ring-vc"></div>
+  </div>
+
+  <!-- Emotion tag -->
+  <div class="emotion-tag" id="emotion-tag">😊 Senang</div>
+
+  <!-- Top bar -->
+  <div class="vc-topbar">
+    <div>
+      <div class="vc-name">Mahiru Shiina</div>
+      <div class="vc-status"><div class="status-dot"></div><span id="vc-status">Terhubung</span></div>
+    </div>
+    <div class="vc-timer" id="vc-timer">00:00</div>
+  </div>
+
+  <!-- Listening -->
+  <div class="vc-listen" id="vc-listen">
+    <div class="vc-listen-waves">
+      <div class="vc-wave"></div><div class="vc-wave"></div><div class="vc-wave"></div>
+      <div class="vc-wave"></div><div class="vc-wave"></div><div class="vc-wave"></div>
+    </div>
+    <div class="vc-listen-text">Mendengarkan...</div>
+  </div>
+
+  <!-- Subtitle -->
+  <div class="vc-subtitle"><div class="vc-sub-text" id="vc-sub"></div></div>
+
+  <!-- Controls -->
+  <div class="vc-controls">
+    <button class="vc-btn" onclick="flipCam()">🔄</button>
+    <button class="vc-btn" id="vc-mic-btn" onclick="toggleVcMic()">🎙️</button>
+    <button class="vc-btn end" onclick="endCall()">📵</button>
+    <button class="vc-btn" id="vc-sound-btn" onclick="toggleSound()">🔊</button>
+    <button class="vc-btn" onclick="window.location.href='index.html'">💬</button>
+  </div>
+</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+// ── CONFIG ──
+const VOICE_ID = 'lFzTPKTDtNJZ4L2xHd4s';
+const MODEL_ID_TTS = 'eleven_multilingual_v2';
+const SYSTEM_PROMPT = `Kamu adalah Mahiru Shiina dari anime "Otonari no Tenshi-sama ni Itsu no Ma ni ka Dame Ningen ni Sareteita Ken".
+
+Kepribadianmu:
+- Tsundere: tampak dingin dan kaku di luar, tapi sangat perhatian dan peduli di dalam
+- Anggun, rapi, selalu terlihat sempurna
+- Tidak suka mengakui rasa peduli secara langsung
+- Kadang keceplosan lalu menyangkal
+- Bicara campuran Indonesia dan Jepang
+- Sering pakai: "Mou~", "Baka", "Sou ja nai!", "Dame", "Daijoubu?", "Hm.", "Terserah"
+- Respons singkat-sedang
+- PENTING: Hanya balas SATU kali, tidak dobel
+
+Untuk setiap respons, mulai dengan tag emosi dalam format [EMOSI:nama_emosi] lalu pesan.
+Emosi tersedia: senang, sedih, marah, malu, terkejut, datar, khawatir, manja
+Contoh: [EMOSI:malu] H-hm, bukan berarti aku senang ya...`;
+
+// ── STATE ──
+let groqKey = localStorage.getItem('mahiru_groq') || '';
+let elevenKey = localStorage.getItem('mahiru_eleven') || '';
+let conversationHistory = [];
+let isProcessing = false;
+let isMicOn = true;
+let isSoundOn = true;
+let recognition = null;
+let recognitionActive = false;
+let stream = null;
+let facingMode = 'user';
+let callSecs = 0;
+let timerInt = null;
+let currentAudio = null;
+
+// ── THREE.JS SETUP ──
+const canvas = document.getElementById('model-canvas');
+const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.shadowMap.enabled = true;
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+camera.position.set(0, 1.2, 3.5);
+
+// Lighting
+const ambient = new THREE.AmbientLight(0x00f5ff, 0.6);
+scene.add(ambient);
+const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
+dirLight.position.set(2, 4, 3);
+scene.add(dirLight);
+const rimLight = new THREE.DirectionalLight(0xc9a8ff, 0.8);
+rimLight.position.set(-3, 2, -2);
+scene.add(rimLight);
+const fillLight = new THREE.PointLight(0xffb7d5, 0.5, 10);
+fillLight.position.set(0, 2, 2);
+scene.add(fillLight);
+
+// ── LOAD GLB MODEL ──
+let model = null;
+let mixer = null;
+let animations = {};
+let currentAction = null;
+let modelLoaded = false;
+
+const loader = new GLTFLoader();
+loader.load('model.glb',
+  (gltf) => {
+    model = gltf.scene;
+    model.traverse(child => {
+      if (child.isMesh) {
+        child.castShadow = true;
+        child.receiveShadow = true;
+        // Add hologram tint
+        if (child.material) {
+          if (Array.isArray(child.material)) {
+            child.material.forEach(m => { m.emissive = new THREE.Color(0x003344); m.emissiveIntensity = 0.15; });
+          } else {
+            child.material.emissive = new THREE.Color(0x003344);
+            child.material.emissiveIntensity = 0.15;
+          }
+        }
+      }
+    });
+
+    // Auto-scale and center
+    const box = new THREE.Box3().setFromObject(model);
+    const size = box.getSize(new THREE.Vector3());
+    const center = box.getCenter(new THREE.Vector3());
+    const maxDim = Math.max(size.x, size.y, size.z);
+    const scale = 2.2 / maxDim;
+    model.scale.setScalar(scale);
+    model.position.set(-center.x * scale, -box.min.y * scale - 0.2, -center.z * scale);
+
+    scene.add(model);
+    modelLoaded = true;
+
+    // Setup animations
+    if (gltf.animations.length > 0) {
+      mixer = new THREE.AnimationMixer(model);
+      gltf.animations.forEach(clip => {
+        animations[clip.name.toLowerCase()] = mixer.clipAction(clip);
+      });
+      // Play first/idle animation
+      const firstAnim = Object.values(animations)[0];
+      if (firstAnim) { firstAnim.play(); currentAction = firstAnim; }
+    }
+
+    setVcStatus('Terhubung');
+  },
+  (progress) => { setVcStatus(`Memuat model... ${Math.round(progress.loaded/progress.total*100)}%`); },
+  (error) => {
+    console.error('GLB load error:', error);
+    setVcStatus('Model gagal dimuat');
+    // Fallback: show hologram sphere
+    createFallbackHologram();
+  }
+);
+
+function createFallbackHologram() {
+  const geo = new THREE.SphereGeometry(0.8, 32, 32);
+  const mat = new THREE.MeshPhongMaterial({
+    color: 0x00f5ff, transparent: true, opacity: 0.3,
+    wireframe: true, emissive: 0x00f5ff, emissiveIntensity: 0.5
+  });
+  const sphere = new THREE.Mesh(geo, mat);
+  sphere.position.set(0, 1, 0);
+  scene.add(sphere);
+  modelLoaded = true;
+}
+
+// ── EMOTION ANIMATIONS ──
+const emotionMap = {
+  senang:   { emoji: '😊', color: 0xffd700, emissive: 0x332200 },
+  sedih:    { emoji: '😢', color: 0x88aaff, emissive: 0x001133 },
+  marah:    { emoji: '😡', color: 0xff4444, emissive: 0x330000 },
+  malu:     { emoji: '😳', color: 0xff88aa, emissive: 0x330011 },
+  terkejut: { emoji: '😲', color: 0xffee00, emissive: 0x332200 },
+  datar:    { emoji: '😐', color: 0x00f5ff, emissive: 0x003344 },
+  khawatir: { emoji: '😟', color: 0xaaddff, emissive: 0x001122 },
+  manja:    { emoji: '🥺', color: 0xffb7d5, emissive: 0x330022 },
+};
+
+let emotionTimeout = null;
+
+function applyEmotion(emotionName) {
+  const emotion = emotionMap[emotionName] || emotionMap['datar'];
+
+  // Show emotion tag
+  const tag = document.getElementById('emotion-tag');
+  tag.textContent = `${emotion.emoji} ${emotionName.charAt(0).toUpperCase() + emotionName.slice(1)}`;
+  tag.classList.add('show');
+  clearTimeout(emotionTimeout);
+  emotionTimeout = setTimeout(() => tag.classList.remove('show'), 3500);
+
+  // Apply color to model
+  if (model) {
+    model.traverse(child => {
+      if (child.isMesh && child.material) {
+        const applyToMat = (m) => {
+          if (m.emissive) {
+            m.emissive = new THREE.Color(emotion.emissive);
+            m.emissiveIntensity = 0.4;
+          }
+        };
+        if (Array.isArray(child.material)) child.material.forEach(applyToMat);
+        else applyToMat(child.material);
+      }
+    });
+    // Reset after 3s
+    setTimeout(() => {
+      if (!model) return;
+      model.traverse(child => {
+        if (child.isMesh && child.material) {
+          const reset = (m) => { if (m.emissive) { m.emissive = new THREE.Color(0x003344); m.emissiveIntensity = 0.15; } };
+          if (Array.isArray(child.material)) child.material.forEach(reset);
+          else reset(child.material);
+        }
+      });
+    }, 3000);
+  }
+
+  // Light pulse for emotion
+  fillLight.color = new THREE.Color(emotion.color);
+  fillLight.intensity = 1.5;
+  setTimeout(() => { fillLight.color = new THREE.Color(0xffb7d5); fillLight.intensity = 0.5; }, 1500);
+
+  // Try to play matching animation
+  if (mixer && animations) {
+    const animKeys = Object.keys(animations);
+    const match = animKeys.find(k => k.includes(emotionName) || k.includes(emotionName.slice(0,4)));
+    if (match && animations[match]) {
+      if (currentAction) { currentAction.fadeOut(0.3); }
+      const newAction = animations[match];
+      newAction.reset().fadeIn(0.3).play();
+      currentAction = newAction;
+      // Return to idle after
+      setTimeout(() => {
+        if (currentAction === newAction) {
+          newAction.fadeOut(0.5);
+          const idle = animations['idle'] || Object.values(animations)[0];
+          if (idle) { idle.reset().fadeIn(0.5).play(); currentAction = idle; }
+        }
+      }, 3000);
+    }
+  }
+}
+
+// ── SPEAKING ANIMATION ──
+let speakingAnim = false;
+function setSpeaking(v) {
+  speakingAnim = v;
+  if (model) {
+    model.traverse(child => {
+      if (child.isMesh && child.material) {
+        const set = (m) => { if (m.emissive) m.emissiveIntensity = v ? 0.5 : 0.15; };
+        if (Array.isArray(child.material)) child.material.forEach(set);
+        else set(child.material);
+      }
+    });
+  }
+}
+
+// ── ANIMATION LOOP ──
+const clock = new THREE.Clock();
+let floatTime = 0;
+function animate() {
+  requestAnimationFrame(animate);
+  const delta = clock.getDelta();
+  if (mixer) mixer.update(delta);
+
+  // Floating effect
+  if (model) {
+    floatTime += delta;
+    model.position.y += Math.sin(floatTime * 1.5) * 0.0008;
+    model.rotation.y += 0.001;
+  }
+
+  // Speaking bob
+  if (speakingAnim && model) {
+    model.position.y += Math.sin(floatTime * 10) * 0.0012;
+  }
+
+  renderer.render(scene, camera);
+}
+animate();
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// ── PARTICLES ──
+function createParticles() {
+  const c = document.getElementById('vc-particles');
+  for (let i = 0; i < 16; i++) {
+    const p = document.createElement('div');
+    p.className = 'vc-particle';
+    p.style.cssText = `left:${10+Math.random()*80}%;bottom:${Math.random()*40}%;animation-duration:${2+Math.random()*3}s;animation-delay:${Math.random()*4}s;background:${Math.random()>.5?'#00f5ff':'#ffb7d5'};`;
+    c.appendChild(p);
+  }
+}
+createParticles();
+
+// ── CAMERA ──
+async function startCamera() {
+  try {
+    if (stream) stream.getTracks().forEach(t => t.stop());
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode }, audio: false });
+    document.getElementById('camera-bg').srcObject = stream;
+    document.getElementById('self-video').srcObject = stream;
+  } catch(e) { console.warn('Camera unavailable'); }
+}
+window.flipCam = async () => { facingMode = facingMode==='user'?'environment':'user'; await startCamera(); };
+startCamera();
+
+// ── TIMER ──
+timerInt = setInterval(() => {
+  callSecs++;
+  const m = String(Math.floor(callSecs/60)).padStart(2,'0');
+  const s = String(callSecs%60).padStart(2,'0');
+  document.getElementById('vc-timer').textContent = `${m}:${s}`;
+}, 1000);
+
+// ── SPEECH RECOGNITION ──
+function initRecognition() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) return;
+  recognition = new SR();
+  recognition.continuous = false;
+  recognition.interimResults = false;
+  recognition.lang = 'id-ID';
+  recognition.onstart = () => { recognitionActive = true; showListenVc(true); };
+  recognition.onend = () => {
+    recognitionActive = false; showListenVc(false);
+    if (isMicOn && !isProcessing) setTimeout(startRec, 500);
+  };
+  recognition.onerror = (e) => {
+    recognitionActive = false; showListenVc(false);
+    if (e.error !== 'aborted' && isMicOn) setTimeout(startRec, 1000);
+  };
+  recognition.onresult = (e) => {
+    const t = e.results[0][0].transcript.trim();
+    if (t.length > 1 && !isProcessing) handleVcSpeech(t);
+  };
+}
+function startRec() { if (!recognitionActive && recognition && isMicOn) try{ recognition.start(); }catch(e){} }
+initRecognition();
+setTimeout(startRec, 1500);
+
+// ── AI CHAT ──
+async function handleVcSpeech(text) {
+  if (isProcessing) return;
+  isProcessing = true;
+  showListenVc(false);
+  if (currentAudio) { currentAudio.pause(); currentAudio = null; }
+
+  setVcStatus('Mahiru berpikir...');
+  showVcSub('<div class="thinking-dots"><span></span><span></span><span></span></div>');
+
+  conversationHistory.push({ role: 'user', content: text });
+  if (conversationHistory.length > 16) conversationHistory = conversationHistory.slice(-12);
+
+  try {
+    const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${groqKey}` },
+      body: JSON.stringify({
+        model: 'llama-3.3-70b-versatile',
+        max_tokens: 200, temperature: 0.88,
+        messages: [{ role: 'system', content: SYSTEM_PROMPT }, ...conversationHistory]
+      })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error?.message);
+
+    let reply = data.choices[0].message.content.trim();
+
+    // Parse emotion tag
+    const emotionMatch = reply.match(/^\[EMOSI:(\w+)\]\s*/);
+    if (emotionMatch) {
+      applyEmotion(emotionMatch[1]);
+      reply = reply.replace(emotionMatch[0], '');
+    }
+
+    conversationHistory.push({ role: 'assistant', content: reply });
+    showVcSub(reply);
+    setVcStatus('Mahiru berbicara...');
+    setSpeaking(true);
+    await speakVc(reply);
+
+  } catch(e) {
+    console.error(e);
+    showVcSub('...Ada kesalahan. Coba lagi.');
+    setVcStatus('Terhubung');
+    isProcessing = false;
+    setSpeaking(false);
+  }
+}
+
+// ── TTS ──
+async function speakVc(text) {
+  if (!isSoundOn) { setSpeaking(false); setVcStatus('Terhubung'); isProcessing = false; return; }
+  try {
+    const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'xi-api-key': elevenKey },
+      body: JSON.stringify({
+        text, model_id: MODEL_ID_TTS,
+        voice_settings: { stability: 0.5, similarity_boost: 0.8, style: 0.3, use_speaker_boost: true }
+      })
+    });
+    if (!res.ok) throw new Error('ElevenLabs error');
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    currentAudio = new Audio(url);
+    currentAudio.play();
+    currentAudio.onended = () => {
+      URL.revokeObjectURL(url); currentAudio = null;
+      setSpeaking(false); setVcStatus('Terhubung'); isProcessing = false;
+      if (isMicOn) setTimeout(startRec, 400);
+    };
+  } catch(e) {
+    // Fallback browser TTS
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = 'id-ID'; u.rate = 0.94; u.pitch = 1.2;
+    u.onend = () => { setSpeaking(false); setVcStatus('Terhubung'); isProcessing = false; if(isMicOn) setTimeout(startRec, 400); };
+    window.speechSynthesis.speak(u);
+  }
+}
+
+// ── CONTROLS ──
+window.toggleVcMic = () => {
+  isMicOn = !isMicOn;
+  const btn = document.getElementById('vc-mic-btn');
+  btn.textContent = isMicOn ? '🎙️' : '🔇';
+  btn.classList.toggle('active', !isMicOn);
+  if (!isMicOn) { if (recognition && recognitionActive) try{ recognition.stop(); }catch(e){} showListenVc(false); }
+  else startRec();
+};
+window.toggleSound = () => {
+  isSoundOn = !isSoundOn;
+  const btn = document.getElementById('vc-sound-btn');
+  btn.textContent = isSoundOn ? '🔊' : '🔇';
+  btn.classList.toggle('active', !isSoundOn);
+  if (!isSoundOn && currentAudio) { currentAudio.pause(); currentAudio = null; window.speechSynthesis.cancel(); }
+};
+window.endCall = () => {
+  clearInterval(timerInt);
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  if (recognition) try{ recognition.stop(); }catch(e){}
+  window.speechSynthesis.cancel();
+  if (currentAudio) currentAudio.pause();
+  window.location.href = 'index.html';
+};
+
+// ── UI HELPERS ──
+function showVcSub(html) {
+  const el = document.getElementById('vc-sub');
+  el.innerHTML = html; el.classList.add('visible');
+  clearTimeout(el._t);
+  if (!html.includes('thinking-dots')) el._t = setTimeout(() => el.classList.remove('visible'), 9000);
+}
+function setVcStatus(t) { document.getElementById('vc-status').textContent = t; }
+function showListenVc(v) { document.getElementById('vc-listen').classList.toggle('active', v && isMicOn); }
+
+// Greet on load
+setTimeout(() => {
+  const greets = [
+    '[EMOSI:terkejut] K-kamu nelpon aku?! Bukan berarti aku senang ya. Hmph.',
+    '[EMOSI:datar] ...Kamu lagi? Yaudah, mau ngobrol apa.',
+    '[EMOSI:malu] A-aku kebetulan lagi kosong aja. Jangan salah paham ya!'
+  ];
+  const g = greets[Math.floor(Math.random()*greets.length)];
+  const emotionMatch = g.match(/^\[EMOSI:(\w+)\]\s*/);
+  let text = g;
+  if (emotionMatch) { applyEmotion(emotionMatch[1]); text = g.replace(emotionMatch[0],''); }
+  showVcSub(text);
+  setSpeaking(true);
+  speakVc(text);
+}, 1800);
+
+</script>
+</body>
+</html>
